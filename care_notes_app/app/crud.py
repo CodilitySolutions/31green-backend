@@ -4,8 +4,9 @@ from app.models import CareNote
 from faker import Faker
 from datetime import datetime, timedelta
 import random
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, distinct
 from typing import Optional, List, Dict
+
 
 fake = Faker()
 
@@ -17,22 +18,40 @@ PRIORITIES = [1, 2, 3, 4, 5]
 # Value: Aggregated stats dict
 cache_store: Dict[str, Dict] = {}
 
-async def create_test_data(db: AsyncSession, total_records: int = 100_000):
+async def create_test_data(
+    db: AsyncSession,
+    total_records: int = 1000000,
+    tenant_count: int = 5000,
+    facilities_per_tenant: int = 5
+):
     """
-    Generate and insert a large number of CareNote records for testing.
+    Generate and insert a large number of CareNote records efficiently.
+
+    Args:
+        db (AsyncSession): Async SQLAlchemy session
+        total_records (int): Number of care notes to insert
+        tenant_count (int): Number of tenants to simulate (default 500)
+        facilities_per_tenant (int): Facilities per tenant (default 5)
     """
-    tenants = [1, 2, 3]
-    facilities_per_tenant = 5
-    total_facilities = len(tenants) * facilities_per_tenant
+    tenants = list(range(1, tenant_count + 1))
+    total_facilities = tenant_count * facilities_per_tenant
     patients = [f"patient_{i}" for i in range(1, 2000)]
     start_date = datetime.utcnow() - timedelta(days=30)
+
     batch_size = 5000
     buffer = []
 
-    for i in range(total_records):
+    for _ in range(total_records):
+        tenant_id = random.choice(tenants)
+
+        # Ensure facility belongs to tenant
+        facility_start = (tenant_id - 1) * facilities_per_tenant + 1
+        facility_end = facility_start + facilities_per_tenant - 1
+        facility_id = random.randint(facility_start, facility_end)
+
         note = CareNote(
-            tenant_id=random.choice(tenants),
-            facility_id=random.randint(1, total_facilities),
+            tenant_id=tenant_id,
+            facility_id=facility_id,
             patient_id=random.choice(patients),
             category=random.choice(CATEGORIES),
             priority=random.choice(PRIORITIES),
@@ -41,14 +60,13 @@ async def create_test_data(db: AsyncSession, total_records: int = 100_000):
         )
         buffer.append(note)
 
-        # Bulk insert in batches for efficiency
         if len(buffer) >= batch_size:
-            db.add_all(buffer)
+            await db.run_sync(lambda sync_db: sync_db.bulk_save_objects(buffer))
             await db.commit()
             buffer.clear()
 
     if buffer:
-        db.add_all(buffer)
+        await db.run_sync(lambda sync_db: sync_db.bulk_save_objects(buffer))
         await db.commit()
 
 
@@ -138,68 +156,4 @@ async def get_daily_care_stats_optimized(
     cache_store[key] = result_data
     return result_data
 
-# from sqlalchemy import select, func, case
 
-# async def get_daily_care_stats_optimized(
-#     db: AsyncSession,
-#     tenant_id: int,
-#     facility_ids: Optional[List[int]] = None,
-#     date: Optional[datetime] = None
-# ):
-#     if date is None:
-#         date = datetime.utcnow()
-#     query_date = date.date()
-
-#     filters = [
-#         CareNote.tenant_id == tenant_id,
-#         func.date(CareNote.created_at) == query_date
-#     ]
-#     if facility_ids:
-#         filters.append(CareNote.facility_id.in_(facility_ids))
-
-#     # Single query for all aggregations
-#     stmt = select(
-#         func.count().label("total_notes"),
-#         func.count(func.distinct(CareNote.patient_id)).label("unique_patients"),
-#         *[
-#             func.sum(case((CareNote.category == cat, 1), else_=0)).label(f"cat_{cat}")
-#             for cat in ['medication', 'observation', 'treatment']
-#         ],
-#         *[
-#             func.sum(case((CareNote.priority == p, 1), else_=0)).label(f"priority_{p}")
-#             for p in range(1, 6)
-#         ]
-#     ).where(*filters)
-
-#     result = await db.execute(stmt)
-#     row = result.one()
-
-#     # Extract results
-#     total_notes = row.total_notes
-#     unique_patients = row.unique_patients
-#     avg_notes_per_patient = total_notes / unique_patients if unique_patients else 0
-
-#     by_category = {
-#         cat: getattr(row, f"cat_{cat}")
-#         for cat in ['medication', 'observation', 'treatment']
-#     }
-#     by_priority = {
-#         p: getattr(row, f"priority_{p}")
-#         for p in range(1, 6)
-#     }
-
-#     # By facility (still needs a separate query if you want per-facility breakdown)
-#     by_facility_result = await db.execute(
-#         select(CareNote.facility_id, func.count())
-#         .where(*filters)
-#         .group_by(CareNote.facility_id)
-#     )
-#     by_facility = dict(by_facility_result.all())
-
-#     return {
-#         "total_notes": total_notes,
-#         "avg_notes_per_patient": round(avg_notes_per_patient, 2),
-#         "by_category": by_category,
-#         "by_priority": by_priority,
-#         "by_facility": by_facility
-#     }

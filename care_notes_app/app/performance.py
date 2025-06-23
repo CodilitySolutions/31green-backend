@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import CareNote
 from app.crud import get_daily_care_stats_optimized
 from app.database import get_db
+from sqlalchemy import select, func, case, distinct
 
 # Compatibility for Python <3.10
 # Provides an async version of 'anext' if not available (for async generator usage)
@@ -65,7 +66,7 @@ async def run_performance_test():
     """
     print("🚀 Starting performance test...\n")
 
-    tenant_id = 3  # Test tenant ID (change as needed)
+    tenant_id = 227 # Test tenant ID (change as needed)
     test_date = datetime.utcnow()
 
     # Get DB session (using async generator)
@@ -86,9 +87,16 @@ async def run_performance_test():
     duration_opt = time.perf_counter() - start_opt
     print(f"✅ Optimized query time: {duration_opt:.4f} seconds")
 
-    # 🔹 Step 3: Calculate improvement
+    # 🔹 Step 3: Calculate improvement and comparison
     improvement = ((duration_old - duration_opt) / duration_old) * 100 if duration_old else 0
-    print(f"📈 Performance improved by: {improvement:.2f}%\n")
+    print(f"\n--- Comparison Result ---")
+    if duration_old > duration_opt:
+        print(f"Optimized function is faster by {improvement:.2f}%.")
+    elif duration_old < duration_opt:
+        print(f"Legacy function is faster by {abs(improvement):.2f}% (unexpected!).")
+    else:
+        print("Both functions took the same amount of time.")
+    print(f"------------------------\n")
 
     # 🔹 Step 4: Concurrency test (run 10 optimized queries in parallel)
     print("🔸 Running 10 parallel optimized queries...")

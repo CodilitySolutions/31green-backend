@@ -31,7 +31,7 @@ class CareNote(Base):
 
     # Table indexes for efficient querying by tenant/date, facility/date, and patient
     __table_args__ = (
-        Index("ix_tenant_created", "tenant_id", "created_at"),  # For fast queries by tenant and date
-        Index("ix_facility_created", "facility_id", "created_at"),  # For fast queries by facility and date
-        Index("ix_patient_id", "patient_id"),  # For fast queries by patient
+        Index("ix_tenant_created", "tenant_id", "created_at"),
+        Index("ix_facility_created", "facility_id", "created_at"),
+        Index("ix_patient_id", "patient_id"),
     )
