@@ -155,5 +155,3 @@ async def get_daily_care_stats_optimized(
     # ✅ Cache result for future identical queries
     cache_store[key] = result_data
     return result_data
-
-
