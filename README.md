@@ -1,7 +1,5 @@
 python3 -m venv venv
 source venv/bin/activate
-#  move to this directory 
-    cd care_notes_app
     
 # Install dependencies
 pip install -r requirements.txt
