@@ -28,7 +28,7 @@ async def startup_event():
     """
     await init_db()
 
-@app.post("/care-notes")
+@app.post("/generate-data")
 async def generate_data(db: AsyncSession = Depends(get_db)):
     """
     Endpoint to generate and insert test data into the database.
@@ -36,26 +36,6 @@ async def generate_data(db: AsyncSession = Depends(get_db)):
     """
     await create_test_data(db)
     return {"message": "Test data inserted!"}
-
-@app.get("/care-notes")
-async def stats(
-    tenant_id: int,
-    facility_ids: Optional[List[int]] = Query(default=None),
-    date: Optional[datetime] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Endpoint to get daily care stats (optimized).
-    - Accepts tenant_id (required), facility_ids (optional, can be multiple), and date (optional).
-    - Returns aggregated stats for the specified filters.
-    Example: /stats?tenant_id=1&facility_ids=1&facility_ids=2
-    """
-    return await get_daily_care_stats_optimized(
-        db=db,
-        tenant_id=tenant_id,
-        facility_ids=facility_ids,
-        date=date
-    )
 
 @app.get("/test-performance")
 async def test_performance():
