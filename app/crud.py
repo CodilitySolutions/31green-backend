@@ -1,22 +1,50 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from app.models import CareNote
-from concurrent.futures import ThreadPoolExecutor
 from faker import Faker
 from datetime import datetime, timedelta
 import random
 from sqlalchemy import select, func, case, distinct
 from typing import Optional, List, Dict
 
+
 fake = Faker()
 
 CATEGORIES = ['medication', 'observation', 'treatment']
 PRIORITIES = [1, 2, 3, 4, 5]
 
-def generate_batch_records(start_index, batch_size, tenants, facilities_per_tenant, patients, start_date) -> List[CareNote]:
-    records = []
-    for _ in range(batch_size):
+# 🔁 In-memory cache (simple dict)
+# Key: string generated from tenant, date, and facility_ids
+# Value: Aggregated stats dict
+cache_store: Dict[str, Dict] = {}
+
+async def create_test_data(
+    db: AsyncSession,
+    total_records: int = 1000000,
+    tenant_count: int = 5000,
+    facilities_per_tenant: int = 5
+):
+    """
+    Generate and insert a large number of CareNote records efficiently.
+
+    Args:
+        db (AsyncSession): Async SQLAlchemy session
+        total_records (int): Number of care notes to insert
+        tenant_count (int): Number of tenants to simulate (default 500)
+        facilities_per_tenant (int): Facilities per tenant (default 5)
+    """
+    tenants = list(range(1, tenant_count + 1))
+    total_facilities = tenant_count * facilities_per_tenant
+    patients = [f"patient_{i}" for i in range(1, 2000)]
+    start_date = datetime.utcnow() - timedelta(days=30)
+
+    batch_size = 5000
+    buffer = []
+
+    for _ in range(total_records):
         tenant_id = random.choice(tenants)
+
+        # Ensure facility belongs to tenant
         facility_start = (tenant_id - 1) * facilities_per_tenant + 1
         facility_end = facility_start + facilities_per_tenant - 1
         facility_id = random.randint(facility_start, facility_end)
@@ -30,43 +58,16 @@ def generate_batch_records(start_index, batch_size, tenants, facilities_per_tena
             created_at=start_date + timedelta(days=random.randint(0, 30)),
             created_by=fake.user_name()
         )
-        records.append(note)
-    return records
+        buffer.append(note)
 
-async def create_test_data(
-    db: AsyncSession,
-    total_records: int = 1000000,
-    tenant_count: int = 5000,
-    facilities_per_tenant: int = 5,
-    max_threads: int = 10
-):
-    tenants = list(range(1, tenant_count + 1))
-    patients = [f"patient_{i}" for i in range(1, 2000)]
-    start_date = datetime.utcnow() - timedelta(days=30)
-
-    batch_size = 5000
-    total_batches = total_records // batch_size
-
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        for batch_index in range(total_batches):
-            # Generate batch in a separate thread
-            batch = await asyncio.get_event_loop().run_in_executor(
-                executor,
-                generate_batch_records,
-                batch_index * batch_size,
-                batch_size,
-                tenants,
-                facilities_per_tenant,
-                patients,
-                start_date
-            )
-
-            # Insert generated records in the main async DB session
-            await db.run_sync(lambda sync_db: sync_db.bulk_save_objects(batch))
+        if len(buffer) >= batch_size:
+            await db.run_sync(lambda sync_db: sync_db.bulk_save_objects(buffer))
             await db.commit()
-            print(f"Inserted batch {batch_index + 1}/{total_batches}")
+            buffer.clear()
 
-    print("Data generation completed.")
+    if buffer:
+        await db.run_sync(lambda sync_db: sync_db.bulk_save_objects(buffer))
+        await db.commit()
 
 
 def cache_key(tenant_id: int, date: datetime, facility_ids: Optional[List[int]]) -> str:
